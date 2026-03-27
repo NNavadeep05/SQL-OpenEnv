@@ -1,0 +1,55 @@
+name: sql-query-optimization
+version: "1.0.0"
+description: "An OpenEnv environment where AI agents learn to write and optimize SQL queries against a realistic employee/department database."
+tags:
+  - openenv
+  - sql
+  - database
+  - query-optimization
+  - real-world
+
+observation:
+  type: object
+  properties:
+    task_id: {type: string}
+    task_description: {type: string}
+    schema_info: {type: string}
+    last_query: {type: string, nullable: true}
+    last_result: {type: string, nullable: true}
+    last_error: {type: string, nullable: true}
+    step_count: {type: integer}
+    max_steps: {type: integer}
+    score_so_far: {type: number}
+
+action:
+  type: object
+  properties:
+    sql_query: {type: string}
+  required: [sql_query]
+
+reward:
+  type: number
+  min: -1.0
+  max: 1.0
+
+tasks:
+  - id: task1
+    difficulty: easy
+    description: "Find all employees in Engineering dept ordered by salary"
+  - id: task2
+    difficulty: medium
+    description: "Department stats with aggregation and HAVING filter"
+  - id: task3
+    difficulty: hard
+    description: "Multi-table join with window function and CTE"
+
+endpoints:
+  reset: POST /reset
+  step: POST /step
+  state: GET /state
+  tasks: GET /tasks
+  grader: POST /grader
+  baseline: POST /baseline
+
+max_steps: 10
+reward_range: [-1.0, 1.0]
