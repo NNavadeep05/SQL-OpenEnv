@@ -21,6 +21,7 @@ class SQLEnvironment:
         self.last_query = None
         self.last_result = None
         self.last_error = None
+        self.done = False
 
     def reset(self) -> Observation:
         self.conn.close()
@@ -31,13 +32,14 @@ class SQLEnvironment:
         self.last_query = None
         self.last_result = None
         self.last_error = None
-        
+        self.done = False
+
         return self._get_observation()
 
     def step(self, action: Action) -> tuple[Observation, Reward, bool, dict]:
         self.step_count += 1
         self.last_query = action.sql_query
-        
+
         result, error = self._execute_query(action.sql_query)
         self.last_result = str(result) if result is not None else None
         self.last_error = error
@@ -50,19 +52,18 @@ class SQLEnvironment:
             conn=self.conn,
             step_count=self.step_count
         )
-        
+
         self.score_so_far += reward.value
-        
-        done = (self.step_count >= self.MAX_STEPS) or reward.result_correct
-        
+        self.done = (self.step_count >= self.MAX_STEPS) or reward.result_correct
+
         obs = self._get_observation()
         info = {
             "task_id": self.task_id,
             "step": self.step_count,
             "done_reason": "max_steps" if self.step_count >= self.MAX_STEPS else ("success" if reward.result_correct else "none")
         }
-        
-        return obs, reward, done, info
+
+        return obs, reward, self.done, info
 
     def state(self) -> dict:
         return {
@@ -71,7 +72,7 @@ class SQLEnvironment:
             "score_so_far": self.score_so_far,
             "max_steps": self.MAX_STEPS,
             "current_task_description": self.task_info["description"],
-            "done": (self.step_count >= self.MAX_STEPS) or (self.score_so_far > 0),
+            "done": self.done,
             "last_query": self.last_query,
             "last_error": self.last_error
         }
@@ -93,7 +94,7 @@ class SQLEnvironment:
         result = None
         error = None
         cursor = self.conn.cursor()
-        
+
         def run_query():
             nonlocal result, error
             try:
@@ -109,8 +110,8 @@ class SQLEnvironment:
         thread = threading.Thread(target=run_query)
         thread.start()
         thread.join(timeout=5.0)
-        
+
         if thread.is_alive():
             error = "Execution timeout: query took more than 5 seconds"
-        
+
         return result, error
