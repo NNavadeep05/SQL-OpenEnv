@@ -5,9 +5,9 @@ class Observation(BaseModel):
     task_id: str
     task_description: str
     schema_info: str
-    last_query: Optional[str]
-    last_result: Optional[str]
-    last_error: Optional[str]
+    last_query: Optional[str] = None
+    last_result: Optional[str] = None
+    last_error: Optional[str] = None
     step_count: int
     max_steps: int
     score_so_far: float
