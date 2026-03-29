@@ -9,7 +9,7 @@ Tables:
 """
 
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(":memory:")
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
     cursor = conn.cursor()
 
     cursor.execute('''CREATE TABLE departments (id INTEGER PRIMARY KEY, name TEXT, budget REAL, location TEXT)''')
@@ -17,7 +17,6 @@ def get_connection() -> sqlite3.Connection:
     cursor.execute('''CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT, department_id INTEGER, start_date TEXT, end_date TEXT, status TEXT)''')
     cursor.execute('''CREATE TABLE employee_projects (employee_id INTEGER, project_id INTEGER, role TEXT, hours_worked REAL)''')
 
-    # Indexes so EXPLAIN QUERY PLAN avoids SCAN and efficiency bonus is earnable
     cursor.execute('''CREATE INDEX idx_employees_dept ON employees(department_id)''')
     cursor.execute('''CREATE INDEX idx_projects_dept ON projects(department_id)''')
     cursor.execute('''CREATE INDEX idx_ep_employee ON employee_projects(employee_id)''')
