@@ -1,3 +1,13 @@
+---
+title: SQL OpenEnv
+emoji: 🗄️
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+tags:
+  - openenv
+---
 # SQL Query Optimization — OpenEnv Environment
 
 ## Overview
