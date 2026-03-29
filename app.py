@@ -22,7 +22,7 @@ class GraderRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "healthy"}
 
 @app.post("/reset")
 def reset(request: ResetRequest):
