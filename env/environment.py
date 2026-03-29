@@ -1,5 +1,4 @@
 import sqlite3
-import threading
 from typing import Optional
 from env.models import Observation, Action, Reward
 from env.database import get_connection, get_schema_string
@@ -33,7 +32,6 @@ class SQLEnvironment:
         self.last_result = None
         self.last_error = None
         self.done = False
-
         return self._get_observation()
 
     def step(self, action: Action) -> tuple[Observation, Reward, bool, dict]:
@@ -91,27 +89,14 @@ class SQLEnvironment:
         )
 
     def _execute_query(self, sql: str) -> tuple[Optional[list], Optional[str]]:
-        result = None
-        error = None
-        cursor = self.conn.cursor()
-
-        def run_query():
-            nonlocal result, error
-            try:
-                cursor.execute(sql)
-                if cursor.description:
-                    columns = [desc[0] for desc in cursor.description]
-                    result = [dict(zip(columns, row)) for row in cursor.fetchall()]
-                else:
-                    result = []
-            except Exception as e:
-                error = str(e)
-
-        thread = threading.Thread(target=run_query)
-        thread.start()
-        thread.join(timeout=5.0)
-
-        if thread.is_alive():
-            error = "Execution timeout: query took more than 5 seconds"
-
-        return result, error
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(sql)
+            if cursor.description:
+                columns = [desc[0] for desc in cursor.description]
+                result = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            else:
+                result = []
+            return result, None
+        except Exception as e:
+            return None, str(e)
