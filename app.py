@@ -25,10 +25,11 @@ def health():
     return {"status": "healthy"}
 
 @app.post("/reset")
-def reset(request: ResetRequest):
+def reset(request: ResetRequest = None):
     global global_env, episode_history
     try:
-        global_env = SQLEnvironment(task_id=request.task_id)
+        task_id = request.task_id if request else "task1"
+        global_env = SQLEnvironment(task_id=task_id)
         episode_history = []
         obs = global_env.reset()
         return obs.model_dump()
