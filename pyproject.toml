@@ -1,0 +1,18 @@
+[project]
+name = "sql-openenv"
+version = "1.0.0"
+description = "SQL Query Optimization OpenEnv Environment"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn==0.30.6",
+    "pydantic==2.8.2",
+    "openai==1.40.0",
+    "requests==2.32.3",
+    "pyyaml==6.0.2",
+]
+
+[project.urls]
+Homepage = "https://huggingface.co/spaces/NaVaDeeP45/SQL-OpenEnv"
+Repository = "https://github.com/NNavadeep05/SQL-OpenEnv"
