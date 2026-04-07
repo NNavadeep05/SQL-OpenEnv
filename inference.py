@@ -1,46 +1,81 @@
 """
-Baseline inference script.
-Usage: python inference.py
-Requires: OPENAI_API_KEY environment variable
-Optionally: BASE_URL env var (default: http://localhost:7860)
+SQL OpenEnv baseline inference script.
+
+Required environment variables:
+- API_BASE_URL: API endpoint for the LLM.
+- MODEL_NAME: model identifier to use for inference.
+- HF_TOKEN: Hugging Face / API key. No default is provided.
+
+Optional:
+- ENV_BASE_URL: SQL OpenEnv server URL. Defaults to http://localhost:7860
+- LOCAL_IMAGE_NAME: used only when running with a local Docker image helper.
 """
+
+from __future__ import annotations
 
 import json
 import os
+from typing import Any
 
 import requests
 from openai import OpenAI
 
-REQUEST_TIMEOUT = 30
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN")
 
-SYSTEM_PROMPT = """You are an expert SQL developer. 
+# Optional - if you use from_docker_image():
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
+
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
+REQUEST_TIMEOUT = 30
+TASK_IDS = ["task1", "task2", "task3"]
+
+SYSTEM_PROMPT = """You are an expert SQL developer.
 You will be given a database schema and a task description.
 Your job is to write a SQL SELECT query that accomplishes the task.
 Respond with ONLY the SQL query, nothing else. No markdown, no explanation.
 Start your response directly with SELECT."""
 
 
-def build_prompt(obs: dict) -> str:
-    prompt = f"Schema:\n{obs.get('schema_info', '')}\n\nTask:\n{obs.get('task_description', '')}\n\nStep: {obs.get('step_count', 0)}"
-    if obs.get('last_query'):
+def log_event(kind: str, payload: dict[str, Any]) -> None:
+    print(f"[{kind}] {json.dumps(payload, separators=(',', ':'), ensure_ascii=True)}", flush=True)
+
+
+def build_prompt(obs: dict[str, Any]) -> str:
+    prompt = (
+        f"Schema:\n{obs.get('schema_info', '')}\n\n"
+        f"Task:\n{obs.get('task_description', '')}\n\n"
+        f"Step: {obs.get('step_count', 0)}"
+    )
+    if obs.get("last_query"):
         prompt += f"\n\nLast Query: {obs['last_query']}"
-        if obs.get('last_result'):
-            prompt += f"\nLast Result: {obs['last_result'][:1000]}"
-        if obs.get('last_error'):
+        if obs.get("last_result"):
+            prompt += f"\nLast Result: {str(obs['last_result'])[:1000]}"
+        if obs.get("last_error"):
             prompt += f"\nLast Error: {obs['last_error']}"
     return prompt[:2000]
 
 
-def post_json(session: requests.Session, url: str, payload: dict) -> dict:
-    response = session.post(url, json=payload, timeout=REQUEST_TIMEOUT)
+def post_json(session: requests.Session, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    response = session.post(f"{ENV_BASE_URL}{path}", json=payload, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
     data = response.json()
     if not isinstance(data, dict):
-        raise ValueError(f"Expected JSON object from {url}, got {type(data).__name__}")
+        raise ValueError(f"Expected JSON object from {path}, got {type(data).__name__}")
     return data
 
 
-def extract_sql(response) -> str:
+def create_client() -> OpenAI | None:
+    if not HF_TOKEN:
+        return None
+    try:
+        return OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    except Exception:
+        return None
+
+
+def extract_sql(response: Any) -> str:
     choices = getattr(response, "choices", None) or []
     if not choices:
         raise ValueError("Model response did not include any choices")
@@ -60,70 +95,105 @@ def extract_sql(response) -> str:
     return sql.strip()
 
 
-def run_task(task_id: str) -> float:
-    base_url = os.getenv("BASE_URL", "http://localhost:7860")
-    api_key = os.getenv("OPENAI_API_KEY")
+def generate_sql(client: OpenAI | None, obs: dict[str, Any]) -> str:
+    if client is None:
+        raise ValueError("HF_TOKEN is not set")
 
+    response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": build_prompt(obs)},
+        ],
+    )
+    sql = extract_sql(response)
+    if not sql:
+        raise ValueError("Parsed SQL was empty")
+    return sql
+
+
+def run_task(client: OpenAI | None, session: requests.Session, task_id: str, task_index: int, total_tasks: int) -> float:
+    start_payload = {
+        "task_id": task_id,
+        "task_index": task_index,
+        "total_tasks": total_tasks,
+        "model_name": MODEL_NAME,
+        "api_base_url": API_BASE_URL,
+    }
+    log_event("START", start_payload)
+
+    step_count = 0
     try:
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY is not set")
-
-        client = OpenAI(api_key=api_key)
-        session = requests.Session()
-
-        # 1. POST /reset
-        res = post_json(session, f"{base_url}/reset", {"task_id": task_id})
-        if "task_description" not in res:
-            raise ValueError("Reset response is missing observation fields")
-
-        obs = res
-        for _ in range(10):
-            # Build prompt
-            prompt = build_prompt(obs)
-
-            # Call GPT-4o-mini
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            
-            sql = extract_sql(response)
-            if not sql:
-                raise ValueError("Parsed SQL was empty")
-
-            # POST /step
-            step_res = post_json(session, f"{base_url}/step", {"sql_query": sql})
-            if "observation" not in step_res:
-                raise ValueError("Step response is missing observation")
-
-            obs = step_res["observation"]
-            if step_res.get("done"):
-                break
-
-        # POST /grader
-        grade_res = post_json(session, f"{base_url}/grader", {"task_id": task_id})
-        score = grade_res.get("score", 0.0)
-        return float(score)
-    except Exception as e:
-        print(f"Error running {task_id}: {e}")
+        obs = post_json(session, "/reset", {"task_id": task_id})
+        max_steps = int(obs.get("max_steps", 10))
+    except Exception as exc:
+        log_event("END", {"task_id": task_id, "score": 0.0, "steps": 0, "status": "error", "error": str(exc)})
         return 0.0
 
+    while step_count < max_steps:
+        step_count += 1
+        sql_query = "SELECT 1"
+        llm_error = None
 
-def main():
-    scores = {}
-    for task_id in ["task1", "task2", "task3"]:
-        print(f"Running {task_id}...")
-        score = run_task(task_id)
-        scores[task_id] = score
-        print(f"  Score: {score:.3f}")
-    
-    mean = sum(scores.values()) / len(scores)
-    scores["mean"] = mean
-    print(f"\nBaseline Results:")
-    print(json.dumps(scores, indent=2))
+        try:
+            sql_query = generate_sql(client, obs)
+        except Exception as exc:
+            llm_error = str(exc)
+
+        done = False
+        reward_value = 0.0
+        step_error = llm_error
+
+        try:
+            step_res = post_json(session, "/step", {"sql_query": sql_query})
+            obs = step_res.get("observation", obs)
+            reward = step_res.get("reward", {}) if isinstance(step_res.get("reward"), dict) else {}
+            reward_value = float(reward.get("value", 0.0))
+            done = bool(step_res.get("done", False))
+        except Exception as exc:
+            step_error = str(exc)
+            done = True
+
+        step_payload = {
+            "task_id": task_id,
+            "step": step_count,
+            "sql_query": sql_query,
+            "reward": reward_value,
+            "done": done,
+        }
+        if step_error:
+            step_payload["error"] = step_error
+        log_event("STEP", step_payload)
+
+        if done:
+            break
+
+    score = 0.0
+    end_status = "ok"
+    end_error = None
+    try:
+        grade_res = post_json(session, "/grader", {"task_id": task_id})
+        score = float(grade_res.get("score", 0.0))
+    except Exception as exc:
+        end_status = "error"
+        end_error = str(exc)
+
+    end_payload = {"task_id": task_id, "score": score, "steps": step_count, "status": end_status}
+    if end_error:
+        end_payload["error"] = end_error
+    log_event("END", end_payload)
+    return score
+
+
+def main() -> dict[str, float]:
+    client = create_client()
+    session = requests.Session()
+    scores: dict[str, float] = {}
+
+    for index, task_id in enumerate(TASK_IDS, start=1):
+        scores[task_id] = run_task(client, session, task_id, index, len(TASK_IDS))
+
+    scores["mean"] = sum(scores.values()) / len(TASK_IDS)
     return scores
 
 
