@@ -57,7 +57,7 @@ def post_json(session: requests.Session, path: str, payload: dict[str, Any]) -> 
 
 
 def create_client() -> OpenAI:
-    api_key = os.environ.get("API_KEY")
+    api_key = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN") or "placeholder"
     api_base = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
     return OpenAI(base_url=api_base, api_key=api_key)
 
