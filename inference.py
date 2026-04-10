@@ -2,13 +2,10 @@
 SQL OpenEnv baseline inference script.
 
 Required environment variables:
-- API_BASE_URL: API endpoint for the LLM.
+- API_BASE_URL: API endpoint for the LLM proxy.
+- API_KEY: API key for the LLM proxy.
 - MODEL_NAME: model identifier to use for inference.
-- HF_TOKEN: Hugging Face / API key. No default is provided.
-
-Optional:
-- ENV_BASE_URL: SQL OpenEnv server URL. Defaults to http://localhost:7860
-- LOCAL_IMAGE_NAME: used only when running with a local Docker image helper.
+- ENV_BASE_URL: SQL OpenEnv server URL.
 """
 
 from __future__ import annotations
@@ -20,14 +17,7 @@ from typing import Any
 import requests
 from openai import OpenAI
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
-HF_TOKEN = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
-
-# Optional - if you use from_docker_image():
-LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
-
-ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
+ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:7860")
 REQUEST_TIMEOUT = 30
 TASK_IDS = ["task1", "task2", "task3"]
 
@@ -66,26 +56,20 @@ def post_json(session: requests.Session, path: str, payload: dict[str, Any]) -> 
     return data
 
 
-def create_client() -> OpenAI | None:
-    token = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
-    if not token:
-        return None
-    try:
-        return OpenAI(base_url=API_BASE_URL, api_key=token)
-    except Exception:
-        return None
+def create_client() -> OpenAI:
+    api_key = os.environ.get("API_KEY")
+    api_base = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
+    return OpenAI(base_url=api_base, api_key=api_key)
 
 
 def extract_sql(response: Any) -> str:
     choices = getattr(response, "choices", None) or []
     if not choices:
         raise ValueError("Model response did not include any choices")
-
     message = getattr(choices[0], "message", None)
     content = getattr(message, "content", None)
     if not isinstance(content, str) or not content.strip():
         raise ValueError("Model response content was empty")
-
     sql = content.strip()
     if sql.startswith("```sql"):
         sql = sql[6:]
@@ -96,12 +80,10 @@ def extract_sql(response: Any) -> str:
     return sql.strip()
 
 
-def generate_sql(client: OpenAI | None, obs: dict[str, Any]) -> str:
-    if client is None:
-        raise ValueError("HF_TOKEN is not set")
-
+def generate_sql(client: OpenAI, obs: dict[str, Any]) -> str:
+    model = os.environ.get("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
     response = client.chat.completions.create(
-        model=MODEL_NAME,
+        model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": build_prompt(obs)},
@@ -113,15 +95,15 @@ def generate_sql(client: OpenAI | None, obs: dict[str, Any]) -> str:
     return sql
 
 
-def run_task(client: OpenAI | None, session: requests.Session, task_id: str, task_index: int, total_tasks: int) -> float:
-    start_payload = {
+def run_task(session: requests.Session, task_id: str, task_index: int, total_tasks: int) -> float:
+    client = create_client()
+    log_event("START", {
         "task_id": task_id,
         "task_index": task_index,
         "total_tasks": total_tasks,
-        "model_name": MODEL_NAME,
-        "api_base_url": API_BASE_URL,
-    }
-    log_event("START", start_payload)
+        "model_name": os.environ.get("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct"),
+        "api_base_url": os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1"),
+    })
 
     step_count = 0
     try:
@@ -134,16 +116,15 @@ def run_task(client: OpenAI | None, session: requests.Session, task_id: str, tas
     while step_count < max_steps:
         step_count += 1
         sql_query = "SELECT 1"
-        llm_error = None
+        step_error = None
 
         try:
             sql_query = generate_sql(client, obs)
         except Exception as exc:
-            llm_error = str(exc)
+            step_error = str(exc)
 
         done = False
         reward_value = 0.0
-        step_error = llm_error
 
         try:
             step_res = post_json(session, "/step", {"sql_query": sql_query})
@@ -187,13 +168,10 @@ def run_task(client: OpenAI | None, session: requests.Session, task_id: str, tas
 
 
 def main() -> dict[str, float]:
-    client = create_client()
     session = requests.Session()
     scores: dict[str, float] = {}
-
     for index, task_id in enumerate(TASK_IDS, start=1):
-        scores[task_id] = run_task(client, session, task_id, index, len(TASK_IDS))
-
+        scores[task_id] = run_task(session, task_id, index, len(TASK_IDS))
     scores["mean"] = sum(scores.values()) / len(TASK_IDS)
     return scores
 
