@@ -22,7 +22,7 @@ from openai import OpenAI
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
-HF_TOKEN = os.getenv("HF_TOKEN")
+HF_TOKEN = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
 
 # Optional - if you use from_docker_image():
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
@@ -67,10 +67,11 @@ def post_json(session: requests.Session, path: str, payload: dict[str, Any]) -> 
 
 
 def create_client() -> OpenAI | None:
-    if not HF_TOKEN:
+    token = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
+    if not token:
         return None
     try:
-        return OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+        return OpenAI(base_url=API_BASE_URL, api_key=token)
     except Exception:
         return None
 
