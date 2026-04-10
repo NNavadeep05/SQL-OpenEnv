@@ -56,10 +56,13 @@ def post_json(session: requests.Session, path: str, payload: dict[str, Any]) -> 
     return data
 
 
-def create_client() -> OpenAI:
-    api_key = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN") or "placeholder"
-    api_base = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
-    return OpenAI(base_url=api_base, api_key=api_key)
+def create_client() -> OpenAI | None:
+    try:
+        api_key = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN") or "placeholder"
+        api_base = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
+        return OpenAI(base_url=api_base, api_key=api_key)
+    except Exception:
+        return None
 
 
 def extract_sql(response: Any) -> str:
@@ -119,6 +122,8 @@ def run_task(session: requests.Session, task_id: str, task_index: int, total_tas
         step_error = None
 
         try:
+            if client is None:
+                raise ValueError("Could not create OpenAI client")
             sql_query = generate_sql(client, obs)
         except Exception as exc:
             step_error = str(exc)
