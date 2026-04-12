@@ -166,15 +166,22 @@ def run_task(client: OpenAI | None, session: requests.Session, task_id: str, tas
 
 
 def main() -> dict[str, float]:
-    client = OpenAI(base_url=os.environ["API_BASE_URL"], api_key=os.environ["API_KEY"])
+    try:
+        client = OpenAI(base_url=os.environ["API_BASE_URL"], api_key=os.environ["API_KEY"])
+    except Exception as exc:
+        print(f"[ERROR] {exc}", flush=True)
+        client = None
+
     session = requests.Session()
     scores: dict[str, float] = {}
+
     for index, task_id in enumerate(TASK_IDS, start=1):
         try:
             scores[task_id] = run_task(client, session, task_id, index, len(TASK_IDS))
         except Exception as exc:
             print(f"[ERROR] Task {task_id} failed: {exc}", flush=True)
             scores[task_id] = 0.0
+
     scores["mean"] = sum(v for k, v in scores.items() if k != "mean") / len(TASK_IDS)
     return scores
 
