@@ -165,7 +165,8 @@ def run_task(client: OpenAI, session: requests.Session, task_id: str, task_index
 
 
 def main() -> dict[str, float]:
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    api_key = API_KEY or "no-key"
+    client = OpenAI(base_url=API_BASE_URL, api_key=api_key)
     session = requests.Session()
     scores: dict[str, float] = {}
     for index, task_id in enumerate(TASK_IDS, start=1):
