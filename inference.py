@@ -17,9 +17,9 @@ from typing import Any
 import requests
 from openai import OpenAI
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-API_KEY = os.getenv("API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
+API_KEY = os.environ.get("API_KEY")
+MODEL_NAME = os.environ.get("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
 
 REQUEST_TIMEOUT = 30
@@ -166,24 +166,15 @@ def run_task(client: OpenAI | None, session: requests.Session, task_id: str, tas
 
 
 def main() -> dict[str, float]:
-    client = None
-    try:
-        api_key = API_KEY or "no-key"
-        api_base = API_BASE_URL.rstrip("/") + "/"
-        client = OpenAI(base_url=api_base, api_key=api_key)
-    except Exception as exc:
-        print(f"[ERROR] Failed to create client: {exc}", flush=True)
-
+    client = OpenAI(base_url=os.environ["API_BASE_URL"], api_key=os.environ["API_KEY"])
     session = requests.Session()
     scores: dict[str, float] = {}
-
     for index, task_id in enumerate(TASK_IDS, start=1):
         try:
             scores[task_id] = run_task(client, session, task_id, index, len(TASK_IDS))
         except Exception as exc:
             print(f"[ERROR] Task {task_id} failed: {exc}", flush=True)
             scores[task_id] = 0.0
-
     scores["mean"] = sum(v for k, v in scores.items() if k != "mean") / len(TASK_IDS)
     return scores
 
