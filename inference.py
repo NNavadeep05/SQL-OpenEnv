@@ -166,7 +166,13 @@ def run_task(client: OpenAI, session: requests.Session, task_id: str, task_index
 
 def main() -> dict[str, float]:
     api_key = API_KEY or "no-key"
-    client = OpenAI(base_url=API_BASE_URL, api_key=api_key)
+    api_base = API_BASE_URL
+    if not api_base.endswith("/"):
+        api_base = api_base + "/"
+    try:
+        client = OpenAI(base_url=api_base, api_key=api_key)
+    except Exception:
+        client = OpenAI(base_url="https://router.huggingface.co/v1/", api_key=api_key)
     session = requests.Session()
     scores: dict[str, float] = {}
     for index, task_id in enumerate(TASK_IDS, start=1):
