@@ -3,9 +3,11 @@ SQL OpenEnv baseline inference script.
 
 Required environment variables:
 - API_BASE_URL: API endpoint for the LLM proxy.
-- API_KEY: API key for the LLM proxy.
 - MODEL_NAME: model identifier to use for inference.
-- ENV_BASE_URL: SQL OpenEnv server URL.
+- HF_TOKEN: Hugging Face / API key.
+
+Optional:
+- ENV_BASE_URL: SQL OpenEnv server URL. Defaults to http://localhost:7860
 """
 
 from __future__ import annotations
@@ -17,9 +19,9 @@ from typing import Any
 import requests
 from openai import OpenAI
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
-API_KEY = os.environ.get("API_KEY")
-MODEL_NAME = os.environ.get("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
 
 REQUEST_TIMEOUT = 30
@@ -92,7 +94,7 @@ def generate_sql(client: OpenAI, obs: dict[str, Any]) -> str:
     return sql
 
 
-def run_task(client: OpenAI | None, session: requests.Session, task_id: str, task_index: int, total_tasks: int) -> float:
+def run_task(client: OpenAI, session: requests.Session, task_id: str, task_index: int, total_tasks: int) -> float:
     log_event("START", {
         "task_id": task_id,
         "task_index": task_index,
@@ -115,8 +117,6 @@ def run_task(client: OpenAI | None, session: requests.Session, task_id: str, tas
         step_error = None
 
         try:
-            if client is None:
-                raise ValueError("No client available")
             sql_query = generate_sql(client, obs)
         except Exception as exc:
             step_error = str(exc)
@@ -166,12 +166,10 @@ def run_task(client: OpenAI | None, session: requests.Session, task_id: str, tas
 
 
 def main() -> dict[str, float]:
-    try:
-        client = OpenAI(base_url=os.environ["API_BASE_URL"], api_key=os.environ["API_KEY"])
-    except Exception as exc:
-        print(f"[ERROR] {exc}", flush=True)
-        client = None
+    if not HF_TOKEN:
+        raise SystemExit("HF_TOKEN must be set to query the model.")
 
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
     session = requests.Session()
     scores: dict[str, float] = {}
 
