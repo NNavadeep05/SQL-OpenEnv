@@ -17,7 +17,12 @@ from typing import Any
 import requests
 from openai import OpenAI
 
-ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:7860")
+# Module-level variables — judges inject these
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+API_KEY = os.getenv("API_KEY")
+MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
+
 REQUEST_TIMEOUT = 30
 TASK_IDS = ["task1", "task2", "task3"]
 
@@ -56,15 +61,6 @@ def post_json(session: requests.Session, path: str, payload: dict[str, Any]) -> 
     return data
 
 
-def create_client() -> OpenAI | None:
-    try:
-        api_key = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN") or "placeholder"
-        api_base = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
-        return OpenAI(base_url=api_base, api_key=api_key)
-    except Exception:
-        return None
-
-
 def extract_sql(response: Any) -> str:
     choices = getattr(response, "choices", None) or []
     if not choices:
@@ -84,9 +80,8 @@ def extract_sql(response: Any) -> str:
 
 
 def generate_sql(client: OpenAI, obs: dict[str, Any]) -> str:
-    model = os.environ.get("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct")
     response = client.chat.completions.create(
-        model=model,
+        model=MODEL_NAME,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": build_prompt(obs)},
@@ -98,14 +93,13 @@ def generate_sql(client: OpenAI, obs: dict[str, Any]) -> str:
     return sql
 
 
-def run_task(session: requests.Session, task_id: str, task_index: int, total_tasks: int) -> float:
-    client = create_client()
+def run_task(client: OpenAI, session: requests.Session, task_id: str, task_index: int, total_tasks: int) -> float:
     log_event("START", {
         "task_id": task_id,
         "task_index": task_index,
         "total_tasks": total_tasks,
-        "model_name": os.environ.get("MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct"),
-        "api_base_url": os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1"),
+        "model_name": MODEL_NAME,
+        "api_base_url": API_BASE_URL,
     })
 
     step_count = 0
@@ -122,8 +116,6 @@ def run_task(session: requests.Session, task_id: str, task_index: int, total_tas
         step_error = None
 
         try:
-            if client is None:
-                raise ValueError("Could not create OpenAI client")
             sql_query = generate_sql(client, obs)
         except Exception as exc:
             step_error = str(exc)
@@ -173,10 +165,11 @@ def run_task(session: requests.Session, task_id: str, task_index: int, total_tas
 
 
 def main() -> dict[str, float]:
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     session = requests.Session()
     scores: dict[str, float] = {}
     for index, task_id in enumerate(TASK_IDS, start=1):
-        scores[task_id] = run_task(session, task_id, index, len(TASK_IDS))
+        scores[task_id] = run_task(client, session, task_id, index, len(TASK_IDS))
     scores["mean"] = sum(scores.values()) / len(TASK_IDS)
     return scores
 
